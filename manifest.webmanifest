@@ -1,0 +1,19 @@
+{
+  "name": "考公 / 考编备考工作台",
+  "short_name": "备考工作台",
+  "description": "考公考编一站式备考工作台：今日计划、题本进度、网课进度、错题盘点、学习分析",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f4ec",
+  "theme_color": "#6fa882",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
