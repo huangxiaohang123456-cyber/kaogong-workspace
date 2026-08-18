@@ -832,6 +832,7 @@ function openAuth(){
       '<button class="btn-primary" id="authSubmit" onclick="authSubmit()">登录</button>'+
       '<button class="btn-ghost" onclick="closeAuth()">取消</button>'+
     '</div>'+
+    '<div style="text-align:right;margin-top:2px"><a href="javascript:void(0)" onclick="forgotPwd()" id="forgotLink" style="font-size:12px;color:var(--primary);text-decoration:none;display:none">忘记密码？</a></div>'+
     '<p class="muted" style="font-size:11.5px;margin-top:12px;text-align:center">注册即代表你拥有该账号数据的独立权限</p>'+
     '</div></div>';
   authTab('login');
@@ -844,6 +845,7 @@ function authTab(m){
   $('#tabLogin').className='btn-'+(m==='login'?'primary':'ghost')+' btn-sm';
   $('#tabReg').className='btn-'+(m==='reg'?'primary':'ghost')+' btn-sm';
   $('#authSubmit').textContent=(m==='login'?'登录':'注册');
+  const fl=$('#forgotLink'); if(fl) fl.style.display=(m==='login'?'inline':'none');
   $('#authErr').textContent='';
 }
 window.closeAuth=()=>{localStorage.setItem('kg_auth_dismissed','1');closeModal();};
@@ -871,6 +873,47 @@ window.authSubmit=async()=>{
 window.doLogout=async()=>{
   if(supabase){ try{await supabase.auth.signOut();}catch(e){} }
   currentUser=null; setCloudState('本地'); renderAccountUI(); toast('已退出登录（本机数据保留）');
+};
+/* 忘记密码：发送重置邮件 */
+window.forgotPwd=async()=>{
+  if(!supabase){toast('云端未连接，请检查网络');return;}
+  const email=$('#authEmail').value.trim();
+  if(!email){$('#authErr').textContent='请先在上方输入你的邮箱';return;}
+  $('#authErr').textContent='正在发送重置邮件…';
+  try{
+    const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+    if(error)throw error;
+    $('#authErr').textContent='✅ 重置邮件已发送，请到邮箱查收并点击链接设置新密码';
+  }catch(e){$('#authErr').textContent='错误：'+(e.message||e);}
+};
+/* 邮箱链接回来后：设置新密码 */
+window.openResetPwd=()=>{
+  $('#modalRoot').innerHTML=
+    '<div class="modal-mask" onclick="if(event.target===this)closeModal()">'+
+    '<div class="modal" style="max-width:420px">'+
+    '<h3>🔑 设置新密码</h3>'+
+    '<p class="muted" style="font-size:12.5px;margin-bottom:12px">你通过邮箱「重置密码」链接进入，请输入新的登录密码。</p>'+
+    '<div class="field"><label>新密码（至少 6 位）</label><input id="newPwd" type="password" placeholder="输入新密码" autocomplete="new-password"></div>'+
+    '<div class="field"><label>确认新密码</label><input id="newPwd2" type="password" placeholder="再次输入" autocomplete="new-password"></div>'+
+    '<div id="resetErr" style="color:var(--danger);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>'+
+    '<div class="row" style="flex-direction:column;align-items:stretch;gap:8px">'+
+      '<button class="btn-primary" onclick="submitResetPwd()">确认修改</button>'+
+      '<button class="btn-ghost" onclick="closeModal()">取消</button>'+
+    '</div>'+
+    '</div></div>';
+  setTimeout(()=>{const el=$('#newPwd');if(el)el.focus();},50);
+};
+window.submitResetPwd=async()=>{
+  const p1=$('#newPwd').value, p2=$('#newPwd2').value;
+  if(!p1||p1.length<6){$('#resetErr').textContent='新密码至少 6 位';return;}
+  if(p1!==p2){$('#resetErr').textContent='两次输入不一致';return;}
+  $('#resetErr').textContent='处理中…';
+  try{
+    const {error}=await supabase.auth.updateUser({password:p1});
+    if(error)throw error;
+    toast('密码已更新，请用新密码登录');
+    closeModal(); openAuth();
+  }catch(e){$('#resetErr').textContent='错误：'+(e.message||e);}
 };
 
 $('#exportBtn').onclick=()=>{
@@ -910,7 +953,14 @@ renderAll();
     setCloudState('本地');
     if(!localStorage.getItem('kg_auth_dismissed')) openAuth();   // 未登录且未拒绝过 → 引导注册
   }
-  supabase.auth.onAuthStateChange((event,session)=>{ handleSession(session); });
+  // 捕获邮箱「重置密码」链接带回的 token，自动弹出改密码框
+  supabase.auth.getSessionFromUrl({storeSession:true}).catch(()=>{});
+  supabase.auth.onAuthStateChange((event,session)=>{
+    if(event==='PASSWORD_RECOVERY' || (event==='SIGNED_IN' && location.hash.includes('type=recovery'))){
+      openResetPwd(); return;
+    }
+    handleSession(session);
+  });
 })();
 
 /* ====== PWA 注册 ====== */
