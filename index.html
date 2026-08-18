@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#6fa882" />
 <title>考公 / 考编备考工作台</title>
 <link rel="manifest" href="manifest.webmanifest" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   --bg:#f7f4ec; --bg2:#efe9dc; --panel:#fffdf8; --ink:#33302a; --ink2:#5b554c;
@@ -185,7 +186,7 @@ li.t .mn{font-size:12px;color:var(--muted);flex-shrink:0}
       <div class="nav-item" data-view="monthly"><span class="ic">📈</span>每月分析</div>
       <div class="nav-item" data-view="settings"><span class="ic">⚙️</span>数据与设置</div>
     </nav>
-    <div class="side-foot">每人打开都有独立空间<br>自动云端保存·换设备输同码同步<br>可「添加到主屏幕」当 App</div>
+    <div class="side-foot">注册账号即享独立空间<br>数据凭密码隔离·换设备登录同步<br>可「添加到主屏幕」当 App</div>
   </aside>
 
   <main class="main">
@@ -293,19 +294,9 @@ li.t .mn{font-size:12px;color:var(--muted);flex-shrink:0}
     <!-- 数据与设置 -->
     <section id="view-settings" class="view">
       <div class="card" style="max-width:560px;margin-bottom:16px">
-        <h3>🔗 个人空间（多端同步）</h3>
-        <p class="muted" style="font-size:12.5px;margin-bottom:12px">把链接发给别人，<strong>每个人打开都会自动获得一个独立的「个人空间码」</strong>，数据互不干扰。这个码就是你的身份凭证——换手机 / 电脑时，输入同一个码即可同步。你也可以改成自己好记的码（字母或数字）。</p>
-        <div class="field"><label>个人空间码</label>
-          <div class="row" style="gap:8px">
-            <input id="syncInput" type="text" placeholder="输入同步码" value="">
-            <button class="btn-ghost btn-sm" onclick="copyCode()" style="white-space:nowrap">复制我的码</button>
-          </div>
-        </div>
-        <div class="row">
-          <button class="btn-primary" id="syncSet">保存 / 启用</button>
-          <button class="btn-ghost" id="syncClear">解除本机同步</button>
-          <span id="syncState" class="muted" style="font-size:12.5px"></span>
-        </div>
+        <h3>🔐 账号（多端同步 · 权限隔离）</h3>
+        <p class="muted" style="font-size:12.5px;margin-bottom:12px">注册账号后，你的数据独立保存在云端、凭密码访问，<strong>其他人绝看不到你的内容</strong>。同一账号在手机 / 电脑登录即可自动同步。未登录时数据只存本机浏览器。</p>
+        <div id="acctBox"></div>
       </div>
       <div class="grid cols-2">
         <div class="card">
@@ -352,12 +343,15 @@ const CONFIG = {
   supabaseKey: 'sb_publishable_dPUeA4ArljNDLWkIqJng4g_u1A7kXWo'    // anon public key（可公开，安全）
 };
 
+// Supabase 客户端（离线 / CDN 未加载时降级为纯本地模式，不报错）
+let supabase=null;
+try{ if(window.supabase) supabase=window.supabase.createClient(CONFIG.supabaseUrl,CONFIG.supabaseKey); }catch(e){ supabase=null; }
+
 const KEY='kaogong_v4';
 const $=(s)=>document.querySelector(s);
 const $$=(s)=>document.querySelectorAll(s);
 const today=()=>new Date().toISOString().slice(0,10);
 const uid=()=>Math.random().toString(36).slice(2,9);
-const genCode=()=>{const c='ABCDEFGHJKMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<12;i++)s+=c[Math.floor(Math.random()*c.length)];return s;};
 const esc=(s)=>String(s||'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 const TYPES=['资料分析','判断推理','言语理解','数量关系','政治理论','常识判断'];
 const COLORS={'资料分析':'#9ec3a3','判断推理':'#e8b86d','言语理解':'#e0977e','数量关系':'#a8c4e8','政治理论':'#c9a86a','常识判断':'#b0a8d4'};
@@ -404,34 +398,61 @@ try{state=JSON.parse(localStorage.getItem(KEY))||defaultState();}catch(e){state=
 if(!state.dist)state.dist={'资料分析':0,'判断推理':0,'言语理解':0,'数量关系':0,'政治理论':0,'常识判断':0};
 if(!state.acc)state.acc={'资料分析':0,'判断推理':0,'言语理解':0,'数量关系':0,'政治理论':0,'常识判断':0};
 
-/* ====== 同步层（Supabase，可选） ====== */
-const sbEnabled=()=>!!(CONFIG.supabaseUrl&&CONFIG.supabaseKey);
-let _autoGen=false;
-let syncCode=localStorage.getItem('kg_sync_code')||'';
-if(sbEnabled()&&!syncCode){syncCode=genCode();localStorage.setItem('kg_sync_code',syncCode);_autoGen=true;}
-async function sbLoad(code){
-  const r=await fetch(CONFIG.supabaseUrl+'/rest/v1/kg_state?sync_code=eq.'+encodeURIComponent(code)+'&select=data',{
-    headers:{'apikey':CONFIG.supabaseKey,'Authorization':'Bearer '+CONFIG.supabaseKey}});
-  const j=await r.json(); return (j&&j[0])?j[0].data:null;
-}
-async function sbSave(code,data){
-  await fetch(CONFIG.supabaseUrl+'/rest/v1/kg_state',{
-    method:'POST',
-    headers:{'apikey':CONFIG.supabaseKey,'Authorization':'Bearer '+CONFIG.supabaseKey,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},
-    body:JSON.stringify({sync_code:code,data,updated_at:new Date().toISOString()})});
-}
+/* ====== 账号 / 云端层（Supabase Auth + RLS 权限隔离） ====== */
+const sbEnabled=()=>!!(CONFIG.supabaseUrl&&CONFIG.supabaseKey&&supabase);
+let currentUser=null;                 // 当前登录用户（null = 未登录，仅本机）
 let saveTimer=null;
+
+/* 从云端读取该用户的独立数据（kg_users 表，RLS 保证只看自己的行） */
+async function cloudLoad(uid){
+  const {data,error}=await supabase.from('kg_users').select('data').eq('user_id',uid).maybeSingle();
+  if(error&&error.code!=='PGRST116')throw error;   // PGRST116 = 无记录
+  return data?data.data:null;
+}
+/* 写入该用户的独立数据（upsert，主键 user_id） */
+async function cloudSave(uid,data){
+  const {error}=await supabase.from('kg_users').upsert({user_id:uid,data,updated_at:new Date().toISOString()});
+  if(error)throw error;
+}
+/* 首次登录时，把旧「同步码」空间里的数据迁移到新账号 */
+async function migrateFromLegacy(uid){
+  const legacy=localStorage.getItem('kg_sync_code');
+  if(!legacy)return false;
+  try{
+    const r=await fetch(CONFIG.supabaseUrl+'/rest/v1/kg_state?sync_code=eq.'+encodeURIComponent(legacy)+'&select=data',{
+      headers:{'apikey':CONFIG.supabaseKey,'Authorization':'Bearer '+CONFIG.supabaseKey}});
+    const j=await r.json();
+    if(j&&j[0]&&j[0].data){ await cloudSave(uid,j[0].data); localStorage.removeItem('kg_sync_code'); return true; }
+  }catch(e){}
+  return false;
+}
+
+/* 统一保存：本机必存；登录后同步云端 */
 function save(){
   try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){toast('本机存储已满，请导出备份并清理错题图片');}
-  if(sbEnabled()&&syncCode){
+  if(currentUser){
     clearTimeout(saveTimer);
-    saveTimer=setTimeout(()=>{sbSave(syncCode,state).then(()=>setSyncState('已同步')).catch(()=>setSyncState('同步失败'));},800);
-    setSyncState('同步中…');
+    saveTimer=setTimeout(()=>{cloudSave(currentUser.id,state).then(()=>setCloudState('已登录')).catch(()=>setCloudState('同步失败'));},800);
+    setCloudState('同步中…');
   }
 }
-function setSyncState(txt){
-  const b=$('#syncBadge'); if(!b)return;
-  if(sbEnabled()&&syncCode){b.textContent=txt; b.className='tag';} else {b.textContent='本机'; b.className='tag';}
+function setCloudState(txt){ const b=$('#syncBadge'); if(b)b.textContent=txt; }
+
+/* 登录状态变化 / 初次会话检查的统一处理 */
+async function handleSession(session){
+  if(session&&session.user){
+    currentUser=session.user;
+    setCloudState('同步中…');
+    try{
+      let remote=await cloudLoad(currentUser.id);
+      if(!remote){ const ok=await migrateFromLegacy(currentUser.id); if(ok) remote=await cloudLoad(currentUser.id); }
+      if(remote) state=Object.assign(defaultState(),remote);
+      save();                       // 确保云端有该行（含迁移/本地数据）
+      renderAll(); setCloudState('已登录');
+    }catch(e){ setCloudState('同步失败'); toast('云端读取失败：'+(e.message||e)); }
+  }else{
+    currentUser=null; setCloudState('本地');
+  }
 }
 
 /* ====== 导航 ====== */
@@ -443,7 +464,7 @@ const titles={
   wrongs:['错题盘点','用照片还原每道错题'],
   overall:['总体分析','时间分布与近 30 天学习节奏'],
   monthly:['每月分析','各模块正确率与做题量'],
-  settings:['数据与设置','同步、备份与清理']
+  settings:['数据与设置','账号、备份与清理']
 };
 function goView(v){
   $$('.nav-item,.bn-item').forEach(x=>x.classList.remove('active'));
@@ -773,27 +794,84 @@ function renderMonthly(){
   }).join(' · ');
 }
 
-/* ====== 设置 ====== */
-function renderSyncUI(){
-  $('#syncInput').value=syncCode||'';
-  if(!sbEnabled()){$('#syncState').textContent='未配置云端（仅本机保存）';setSyncState('本机');}
-  else if(syncCode){$('#syncState').innerHTML='✅ 已启用个人空间：<b>'+syncCode+'</b>，数据仅你可见';setSyncState('已同步');}
-  else{$('#syncState').textContent='未设置同步码';setSyncState('本机');}
+/* ====== 设置 / 账号 ====== */
+function renderAccountUI(){
+  const box=$('#acctBox'); if(!box)return;
+  if(currentUser){
+    box.innerHTML=
+      '<div class="row" style="gap:10px;align-items:center;flex-wrap:wrap">'+
+        '<div style="flex:1;min-width:200px"><div class="muted" style="font-size:12px">当前账号</div>'+
+        '<div style="font-size:15px;font-weight:700">'+esc(currentUser.email||'')+'</div></div>'+
+        '<button class="btn-danger btn-sm" onclick="doLogout()">退出登录</button>'+
+      '</div>'+
+      '<p class="muted" style="font-size:12.5px;margin-top:10px">✅ 数据已隔离保存，仅你本人凭密码可访问。</p>';
+  }else{
+    box.innerHTML=
+      '<div class="row" style="flex-direction:column;align-items:stretch;gap:8px">'+
+        '<button class="btn-primary" onclick="openAuth()">登录 / 注册账号</button>'+
+        '<button class="btn-ghost" onclick="dismissAuth()">暂不使用（仅本机）</button>'+
+      '</div>'+
+      '<p class="muted" style="font-size:12.5px;margin-top:10px">未登录时数据只存本机浏览器，换设备不会同步。</p>';
+  }
 }
-window.copyCode=()=>{if(!syncCode){toast('还没有空间码');return;}if(navigator.clipboard)navigator.clipboard.writeText(syncCode);toast('已复制：'+syncCode);};
-$('#syncSet').onclick=async()=>{
-  if(!sbEnabled()){toast('云端未配置，请在文件中填写 Supabase 信息');return;}
-  const code=$('#syncInput').value.trim();
-  if(!code){toast('请输入同步码');return;}
-  syncCode=code;localStorage.setItem('kg_sync_code',code);
+
+let authMode='login';
+function openAuth(){
+  $('#modalRoot').innerHTML=
+    '<div class="modal-mask" onclick="if(event.target===this)closeAuth()">'+
+    '<div class="modal" style="max-width:420px">'+
+    '<h3>🔐 登录 / 注册</h3>'+
+    '<div class="row" style="margin-bottom:14px;gap:8px">'+
+      '<button class="btn-primary btn-sm" id="tabLogin" onclick="authTab(\'login\')">登录</button>'+
+      '<button class="btn-ghost btn-sm" id="tabReg" onclick="authTab(\'reg\')">注册</button>'+
+    '</div>'+
+    '<div class="field"><label>邮箱</label><input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email"></div>'+
+    '<div class="field"><label>密码（至少 6 位）</label><input id="authPwd" type="password" placeholder="设置或输入密码" autocomplete="current-password"></div>'+
+    '<div id="authErr" style="color:var(--danger);font-size:12.5px;min-height:18px;margin-bottom:8px"></div>'+
+    '<div class="row" style="flex-direction:column;align-items:stretch;gap:8px">'+
+      '<button class="btn-primary" id="authSubmit" onclick="authSubmit()">登录</button>'+
+      '<button class="btn-ghost" onclick="closeAuth()">取消</button>'+
+    '</div>'+
+    '<p class="muted" style="font-size:11.5px;margin-top:12px;text-align:center">注册即代表你拥有该账号数据的独立权限</p>'+
+    '</div></div>';
+  authTab('login');
+  const submit=()=>authSubmit();
+  $('#authEmail').addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+  $('#authPwd').addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+}
+function authTab(m){
+  authMode=m;
+  $('#tabLogin').className='btn-'+(m==='login'?'primary':'ghost')+' btn-sm';
+  $('#tabReg').className='btn-'+(m==='reg'?'primary':'ghost')+' btn-sm';
+  $('#authSubmit').textContent=(m==='login'?'登录':'注册');
+  $('#authErr').textContent='';
+}
+window.closeAuth=()=>{localStorage.setItem('kg_auth_dismissed','1');closeModal();};
+window.dismissAuth=()=>{localStorage.setItem('kg_auth_dismissed','1');renderAccountUI();toast('已切换为仅本机模式');};
+window.authSubmit=async()=>{
+  if(!supabase){$('#authErr').textContent='云端未连接，请检查网络后重试';return;}
+  const email=$('#authEmail').value.trim();
+  const pwd=$('#authPwd').value;
+  if(!email||!pwd){$('#authErr').textContent='请输入邮箱和密码';return;}
+  if(pwd.length<6){$('#authErr').textContent='密码至少 6 位';return;}
+  $('#authErr').textContent='处理中…';
   try{
-    const remote=await sbLoad(code);
-    if(remote){state=Object.assign(defaultState(),remote);save();toast('已从云端同步');}
-    else{save();toast('已创建云端备份');}
-    renderAll();renderSyncUI();
-  }catch(e){toast('同步失败：'+e.message);}
+    if(authMode==='reg'){
+      const {data,error}=await supabase.auth.signUp({email,password:pwd});
+      if(error)throw error;
+      if(data.session){ closeAuth(); toast('注册成功，已登录'); }
+      else { $('#authErr').textContent='注册成功！请到邮箱点击验证链接，验证后再登录'; }
+    }else{
+      const {data,error}=await supabase.auth.signInWithPassword({email,password:pwd});
+      if(error)throw error;
+      closeAuth(); toast('登录成功');
+    }
+  }catch(e){ $('#authErr').textContent='错误：'+(e.message||e); }
 };
-$('#syncClear').onclick=()=>{syncCode='';localStorage.removeItem('kg_sync_code');setSyncState('本机');renderSyncUI();toast('已解除同步');};
+window.doLogout=async()=>{
+  if(supabase){ try{await supabase.auth.signOut();}catch(e){} }
+  currentUser=null; setCloudState('本地'); renderAccountUI(); toast('已退出登录（本机数据保留）');
+};
 
 $('#exportBtn').onclick=()=>{
   try{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kaogong-backup-'+today()+'.json';a.click();toast('已导出 JSON 备份');}catch(e){toast('导出失败');}
@@ -820,9 +898,20 @@ function closeModal(){$('#modalRoot').innerHTML='';modalSave=null;}
 window.saveCustom=()=>{if(modalSave){const ok=modalSave();if(ok)closeModal();}};
 
 /* ====== 渲染入口 ====== */
-function renderAll(){renderDashboard();renderLibrary();renderBooks();renderCourses();renderWrongs();renderOverall();renderMonthly();renderSyncUI();}
+function renderAll(){renderDashboard();renderLibrary();renderBooks();renderCourses();renderWrongs();renderOverall();renderMonthly();renderAccountUI();}
 renderAll();
-if(_autoGen&&sbEnabled()){save();}
+
+/* ====== 账号引导 / 会话检查 ====== */
+(async()=>{
+  if(!supabase){ setCloudState('本地'); return; }            // 离线 / 未加载库：纯本地
+  const {data}=await supabase.auth.getSession();
+  if(data.session){ await handleSession(data.session); }
+  else{
+    setCloudState('本地');
+    if(!localStorage.getItem('kg_auth_dismissed')) openAuth();   // 未登录且未拒绝过 → 引导注册
+  }
+  supabase.auth.onAuthStateChange((event,session)=>{ handleSession(session); });
+})();
 
 /* ====== PWA 注册 ====== */
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
