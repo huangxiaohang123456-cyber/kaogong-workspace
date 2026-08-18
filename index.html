@@ -185,7 +185,7 @@ li.t .mn{font-size:12px;color:var(--muted);flex-shrink:0}
       <div class="nav-item" data-view="monthly"><span class="ic">📈</span>每月分析</div>
       <div class="nav-item" data-view="settings"><span class="ic">⚙️</span>数据与设置</div>
     </nav>
-    <div class="side-foot">数据默认存本机<br>绑定同步码后跨设备共享<br>可「添加到主屏幕」当 App</div>
+    <div class="side-foot">每人打开都有独立空间<br>自动云端保存·换设备输同码同步<br>可「添加到主屏幕」当 App</div>
   </aside>
 
   <main class="main">
@@ -293,11 +293,16 @@ li.t .mn{font-size:12px;color:var(--muted);flex-shrink:0}
     <!-- 数据与设置 -->
     <section id="view-settings" class="view">
       <div class="card" style="max-width:560px;margin-bottom:16px">
-        <h3>🔗 多端同步（同步码）</h3>
-        <p class="muted" style="font-size:12.5px;margin-bottom:12px">设定一个同步码（如 <code>kaogong2026</code>），在手机和电脑输入<strong>同一个码</strong>，数据即自动跨设备共享。同步码相当于密码，请牢记。</p>
-        <div class="field"><label>同步码</label><input id="syncInput" type="text" placeholder="输入同步码" value=""></div>
+        <h3>🔗 个人空间（多端同步）</h3>
+        <p class="muted" style="font-size:12.5px;margin-bottom:12px">把链接发给别人，<strong>每个人打开都会自动获得一个独立的「个人空间码」</strong>，数据互不干扰。这个码就是你的身份凭证——换手机 / 电脑时，输入同一个码即可同步。你也可以改成自己好记的码（字母或数字）。</p>
+        <div class="field"><label>个人空间码</label>
+          <div class="row" style="gap:8px">
+            <input id="syncInput" type="text" placeholder="输入同步码" value="">
+            <button class="btn-ghost btn-sm" onclick="copyCode()" style="white-space:nowrap">复制我的码</button>
+          </div>
+        </div>
         <div class="row">
-          <button class="btn-primary" id="syncSet">启用同步</button>
+          <button class="btn-primary" id="syncSet">保存 / 启用</button>
           <button class="btn-ghost" id="syncClear">解除本机同步</button>
           <span id="syncState" class="muted" style="font-size:12.5px"></span>
         </div>
@@ -352,6 +357,7 @@ const $=(s)=>document.querySelector(s);
 const $$=(s)=>document.querySelectorAll(s);
 const today=()=>new Date().toISOString().slice(0,10);
 const uid=()=>Math.random().toString(36).slice(2,9);
+const genCode=()=>{const c='ABCDEFGHJKMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<12;i++)s+=c[Math.floor(Math.random()*c.length)];return s;};
 const esc=(s)=>String(s||'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 const TYPES=['资料分析','判断推理','言语理解','数量关系','政治理论','常识判断'];
 const COLORS={'资料分析':'#9ec3a3','判断推理':'#e8b86d','言语理解':'#e0977e','数量关系':'#a8c4e8','政治理论':'#c9a86a','常识判断':'#b0a8d4'};
@@ -399,8 +405,10 @@ if(!state.dist)state.dist={'资料分析':0,'判断推理':0,'言语理解':0,'�
 if(!state.acc)state.acc={'资料分析':0,'判断推理':0,'言语理解':0,'数量关系':0,'政治理论':0,'常识判断':0};
 
 /* ====== 同步层（Supabase，可选） ====== */
-let syncCode=localStorage.getItem('kg_sync_code')||'';
 const sbEnabled=()=>!!(CONFIG.supabaseUrl&&CONFIG.supabaseKey);
+let _autoGen=false;
+let syncCode=localStorage.getItem('kg_sync_code')||'';
+if(sbEnabled()&&!syncCode){syncCode=genCode();localStorage.setItem('kg_sync_code',syncCode);_autoGen=true;}
 async function sbLoad(code){
   const r=await fetch(CONFIG.supabaseUrl+'/rest/v1/kg_state?sync_code=eq.'+encodeURIComponent(code)+'&select=data',{
     headers:{'apikey':CONFIG.supabaseKey,'Authorization':'Bearer '+CONFIG.supabaseKey}});
@@ -767,11 +775,12 @@ function renderMonthly(){
 
 /* ====== 设置 ====== */
 function renderSyncUI(){
-  $('#syncInput').value=syncCode;
-  if(sbEnabled()&&syncCode){$('#syncState').textContent='已启用：'+syncCode;setSyncState('已同步');}
-  else if(sbEnabled()&&!syncCode){$('#syncState').textContent='未设置同步码';setSyncState('本机');}
-  else{$('#syncState').textContent='未配置云端（仅本机）';setSyncState('本机');}
+  $('#syncInput').value=syncCode||'';
+  if(!sbEnabled()){$('#syncState').textContent='未配置云端（仅本机保存）';setSyncState('本机');}
+  else if(syncCode){$('#syncState').innerHTML='✅ 已启用个人空间：<b>'+syncCode+'</b>，数据仅你可见';setSyncState('已同步');}
+  else{$('#syncState').textContent='未设置同步码';setSyncState('本机');}
 }
+window.copyCode=()=>{if(!syncCode){toast('还没有空间码');return;}if(navigator.clipboard)navigator.clipboard.writeText(syncCode);toast('已复制：'+syncCode);};
 $('#syncSet').onclick=async()=>{
   if(!sbEnabled()){toast('云端未配置，请在文件中填写 Supabase 信息');return;}
   const code=$('#syncInput').value.trim();
@@ -813,6 +822,7 @@ window.saveCustom=()=>{if(modalSave){const ok=modalSave();if(ok)closeModal();}};
 /* ====== 渲染入口 ====== */
 function renderAll(){renderDashboard();renderLibrary();renderBooks();renderCourses();renderWrongs();renderOverall();renderMonthly();renderSyncUI();}
 renderAll();
+if(_autoGen&&sbEnabled()){save();}
 
 /* ====== PWA 注册 ====== */
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
