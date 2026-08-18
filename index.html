@@ -190,6 +190,13 @@ li.t .mn{font-size:12px;color:var(--muted);flex-shrink:0}
   </aside>
 
   <main class="main">
+    <!-- 未登录横幅：常驻显示，JS 没跑也能看见 -->
+    <div id="loginHint" style="display:none;background:#fff7e6;color:#8a6a3b;border-bottom:1px solid #f0e0c0;padding:10px 18px;font-size:13.5px;align-items:center;justify-content:space-between;gap:8px">
+      <span>⚠️ <strong>未检测到登录状态</strong>：数据只存在你本机浏览器，换设备/清缓存就丢了。建议立即注册或登录。</span>
+      <span>
+        <button onclick="openAuth()" style="padding:6px 16px;font-size:13px;border-radius:8px;border:none;color:#fff;background:var(--brand);cursor:pointer;font-weight:600">🔑 登录 / 注册</button>
+      </span>
+    </div>
     <header class="topbar">
       <div><h1 id="pt">今日计划</h1><div class="sub" id="ps">开始今天的学习之旅</div></div>
       <div class="avatar" id="avatar"></div>
@@ -438,6 +445,15 @@ function save(){
 }
 function setCloudState(txt){ const b=$('#syncBadge'); if(b)b.textContent=txt; }
 
+// 顶部常驻提示带（不依赖 toast）
+function showLoginHint(msg){
+  const el=$('#loginHint'); if(!el) return;
+  el.innerHTML='🔒 '+msg+' &nbsp; <button class="btn-primary btn-sm" onclick="openAuth()" style="padding:4px 12px;font-size:12.5px;border-radius:8px;border:none;color:#fff;background:var(--brand);cursor:pointer">立即登录</button>';
+  el.style.display='block';
+}
+function hideLoginHint(){ const el=$('#loginHint'); if(el) el.style.display='none'; }
+window.showLoginHint=showLoginHint; window.hideLoginHint=hideLoginHint;
+
 /* 登录状态变化 / 初次会话检查的统一处理 */
 async function handleSession(session){
   if(session&&session.user){
@@ -448,7 +464,7 @@ async function handleSession(session){
       if(!remote){ const ok=await migrateFromLegacy(currentUser.id); if(ok) remote=await cloudLoad(currentUser.id); }
       if(remote) state=Object.assign(defaultState(),remote);
       save();                       // 确保云端有该行（含迁移/本地数据）
-      renderAll(); setCloudState('已登录');
+      renderAll(); setCloudState('已登录'); hideLoginHint();
     }catch(e){ setCloudState('同步失败'); toast('云端读取失败：'+(e.message||e)); }
   }else{
     currentUser=null; setCloudState('本地');
@@ -849,8 +865,8 @@ function authTab(m){
   const fl=$('#forgotLink'); if(fl) fl.style.display=(m==='login'?'inline':'none');
   $('#authErr').textContent='';
 }
-window.closeAuth=()=>{localStorage.setItem('kg_auth_dismissed','1');closeModal();};
-window.dismissAuth=()=>{localStorage.setItem('kg_auth_dismissed','1');renderAccountUI();toast('已切换为仅本机模式');};
+function closeAuth(){closeModal();}
+window.dismissAuth=()=>{renderAccountUI();toast('已切换为仅本机模式');};
 window.authSubmit=async()=>{
   if(!supabase){$('#authErr').textContent='云端未连接，请检查网络后重试';return;}
   const email=$('#authEmail').value.trim();
@@ -946,22 +962,34 @@ function renderAll(){renderDashboard();renderLibrary();renderBooks();renderCours
 renderAll();
 
 /* ====== 账号引导 / 会话检查 ====== */
-(async()=>{
-  if(!supabase){ setCloudState('本地'); return; }            // 离线 / 未加载库：纯本地
-  const {data}=await supabase.auth.getSession();
-  if(data.session){ await handleSession(data.session); }
-  else{
-    setCloudState('本地');
-    if(!localStorage.getItem('kg_auth_dismissed')) openAuth();   // 未登录且未拒绝过 → 引导注册
-  }
-  // 捕获邮箱「重置密码」链接带回的 token，自动弹出改密码框
-  supabase.auth.getSessionFromUrl({storeSession:true}).catch(()=>{});
-  supabase.auth.onAuthStateChange((event,session)=>{
-    if(event==='PASSWORD_RECOVERY' || (event==='SIGNED_IN' && location.hash.includes('type=recovery'))){
-      openResetPwd(); return;
+// 兜底：不管异步逻辑走没走起来，先把"是否登录"按钮露出来
+window.addEventListener('load',()=>{
+  try{
+    if(!currentUser){
+      showLoginHint('未登录或云端未连上，建议立即登录以便多端同步');
     }
-    handleSession(session);
-  });
+  }catch(e){}
+});
+(async()=>{
+  if(!supabase){ setCloudState('离线'); showLoginHint('云端库未加载，请检查网络后刷新（Ctrl+F5）'); return; }
+  try{
+    const {data}=await supabase.auth.getSession();
+    if(data.session){ await handleSession(data.session); hideLoginHint(); }
+    else{
+      setCloudState('未登录');
+      showLoginHint('当前未登录——立即注册或登录以开启多端同步、数据云端备份');
+    }
+    supabase.auth.getSessionFromUrl({storeSession:true}).catch(()=>{});
+    supabase.auth.onAuthStateChange((event,session)=>{
+      if(event==='PASSWORD_RECOVERY' || (event==='SIGNED_IN' && location.hash.includes('type=recovery'))){
+        openResetPwd(); return;
+      }
+      handleSession(session);
+    });
+  }catch(e){
+    setCloudState('异常');
+    showLoginHint('云端会话检查失败：'+(e.message||e)+'，可刷新或重新登录');
+  }
 })();
 
 /* ====== PWA 注册 ====== */
